@@ -11,6 +11,7 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('EcoSort'),
         centerTitle: true,
+        backgroundColor: const Color.fromARGB(255, 70, 185, 75),
       ),
       body: Center(
         child: Padding(
@@ -18,11 +19,16 @@ class HomeScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
-                "Classify Waste Smartly ♻️",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              Image.asset(
+                'assets/images/recycle_logo.png',
+                height: 130, // img size 
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 20),
+              const Text(
+                "Classify Waste Smartly ",
+                style: TextStyle(color: Colors.green, fontSize: 26, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 30),
               ElevatedButton(
                 onPressed: () {
                   Navigator.push(context,
@@ -31,7 +37,7 @@ class HomeScreen extends StatelessWidget {
                 child: const Text('Upload Image'),
                 style: ElevatedButton.styleFrom(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 40, vertical: 16)),
+                        const EdgeInsets.symmetric(horizontal: 40, vertical: 20)),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
