@@ -161,9 +161,8 @@ class _MapScreenState extends State<MapScreen> {
                   title: Text(center['name']),
                   subtitle: Text(center['address']),
                   trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisSize: MainAxisSize.min, // don't use any free space
                     children: [
-                      
                       IconButton(
                         icon: const Icon(Icons.location_on_rounded, color: Colors.blue),
                         onPressed: () => _openMap(center['url']),

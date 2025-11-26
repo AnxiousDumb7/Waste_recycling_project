@@ -1,12 +1,12 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:math';
-
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:url_launcher/url_launcher.dart';
+import '../helpers/tflite_helper.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
-
-// NOTE: image_picker works on mobile. For web the plugin supports file picking as well
-// via image_picker_for_web automatically when you add the package.
+import 'package:flutter/services.dart' show rootBundle;
 
 class DetectionScreen extends StatefulWidget {
   const DetectionScreen({super.key});
@@ -16,45 +16,113 @@ class DetectionScreen extends StatefulWidget {
 }
 
 class _DetectionScreenState extends State<DetectionScreen> {
-  File? _imageFile;        // for mobile
-  XFile? _xfileForWeb;     // for web (image_picker returns XFile)
-  String _result = "No result"; // static result shown
-  final ImagePicker _picker = ImagePicker();
+  File? _imageFile;
+  XFile? _xfileWeb;
+  String _result = "No result";
+  String _tipTitle = "";
+  String _tipDescription = "";
+  String _videoLink = "";
+  bool _isProcessing = false;
+  final ImagePicker picker = ImagePicker();
+  Map<String, dynamic>? _tipsData;
 
-  // Static demo detector: randomly picks 'Glass' or 'Paper'
-  String _randomDetect() {
-    final r = Random().nextBool();
-    return r ? "Glass" : "Paper";
+  @override
+  void initState() {
+    super.initState();
+    _loadModel();
+    _loadTipsData();
+  }
+
+  Future<void> _loadModel() async {
+    try {
+      await TFLiteHelper.loadModel();
+      debugPrint("Model loaded successfully");
+    } catch (e) {
+      debugPrint("Error loading model: $e");
+    }
+  }
+
+  Future<void> _loadTipsData() async {
+    try {
+      final data = await rootBundle.loadString("assets/data/diy_tips.json");
+      setState(() {
+        _tipsData = jsonDecode(data);
+      });
+      debugPrint("✅ Tips JSON loaded successfully");
+    } catch (e) {
+      debugPrint("❌ Failed to load tips JSON: $e");
+    }
   }
 
   Future<void> _pickImage() async {
-    try {
-      final picked = await _picker.pickImage(source: ImageSource.gallery);
-      if (picked == null) return;
+    final picked = await picker.pickImage(source: ImageSource.gallery);
+    if (picked == null) return;
 
-      setState(() {
-        if (kIsWeb) {
-          // For web we store the XFile
-          _xfileForWeb = picked;
-          _imageFile = null;
-        } else {
-          _imageFile = File(picked.path);
-          _xfileForWeb = null;
-        }
-        // Static detection: pick random label for demo
-        _result = _randomDetect() + " Waste";
-      });
-    } catch (e) {
-      // handle errors
-      debugPrint("Image pick error: $e");
+    setState(() => _isProcessing = true);
+
+    if (kIsWeb) {
+      _xfileWeb = picked;
+      _imageFile = null;
+    } else {
+      _imageFile = File(picked.path);
+      _xfileWeb = null;
     }
+
+    await _classifyImage(picked.path);
+    setState(() => _isProcessing = false);
+  }
+
+  Future<void> _classifyImage(String path) async {
+    final result = await TFLiteHelper.classifyImage(path);
+
+    if (result == null || result.isEmpty) {
+      setState(() {
+        _result = "No result";
+        _tipTitle = "";
+        _tipDescription = "";
+        _videoLink = "";
+      });
+      return;
+    }
+
+    final glassProb = result[0];
+    final paperProb = result[1];
+    String detectedLabel = glassProb > paperProb ? "glass" : "paper";
+    _showRandomTip(detectedLabel);
+  }
+
+  void _showRandomTip(String label) {
+    if (_tipsData == null || !_tipsData!.containsKey(label)) {
+      setState(() {
+        _tipTitle = "No tips available";
+        _tipDescription = "";
+        _videoLink = "";
+      });
+      return;
+    }
+
+    final tipsList = _tipsData![label] as List<dynamic>;
+    final randomTip = (tipsList..shuffle()).first;
+
+    setState(() {
+      _tipTitle = randomTip["title"];
+      _tipDescription = randomTip["description"];
+      _videoLink = randomTip["video_link"];
+      _result = label == "glass" ? "Glass Detected" : "Paper Detected";
+    });
+  }
+
+  @override
+  void dispose() {
+    TFLiteHelper.disposeModel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     Widget imageWidget;
-    if (kIsWeb && _xfileForWeb != null) {
-      imageWidget = Image.network(_xfileForWeb!.path, height: 220);
+    if (kIsWeb && _xfileWeb != null) {
+      imageWidget = Image.network(_xfileWeb!.path, height: 220);
     } else if (_imageFile != null) {
       imageWidget = Image.file(_imageFile!, height: 220);
     } else {
@@ -62,47 +130,85 @@ class _DetectionScreenState extends State<DetectionScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Waste Detection")),
+      appBar: AppBar(
+        title: const Text("Waste Detection"),
+        backgroundColor: Colors.green.shade700,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           children: [
             Center(child: imageWidget),
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: _pickImage,
-              icon: const Icon(Icons.upload_file),
+              icon: const Icon(Icons.upload),
               label: const Text("Pick Image"),
-            ),
-            const SizedBox(height: 18),
-
-            // Static detection result area
-            Card(
-              elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  children: [
-                    Text("Result: $_result",
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    if (_result.startsWith("Glass"))
-                      const Text("Disposal Tip: Rinse glass and place in green bin.")
-                    else if (_result.startsWith("Paper"))
-                      const Text("Disposal Tip: Flatten paper and place in blue bin.")
-                    else
-                      const Text("No tip available.")
-                  ],
-                ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
               ),
             ),
-            const SizedBox(height: 12),
-            const Text(
-              "Note: This is a demo static detector. Replace with TFLite model for real detection.",
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
-            )
+            const SizedBox(height: 25),
+            _isProcessing
+                ? const CircularProgressIndicator()
+                : Card(
+                    elevation: 6,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _tipTitle,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _tipDescription,
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              final Uri uri = Uri.parse(_videoLink);
+                              if (await canLaunchUrl(uri)) {
+                                final launched = await launchUrl(
+                                  uri,
+                                  mode: LaunchMode.externalApplication,
+                                );
+                                if (!launched) {
+                                  debugPrint(
+                                      "⚠️ Fallback: trying browser launch");
+                                  await launchUrl(uri,
+                                      mode: LaunchMode.platformDefault);
+                                }
+                              } else {
+                                debugPrint(
+                                    "❌ Could not launch URL: $_videoLink");
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                      content:
+                                          Text("Cannot open YouTube link")),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.play_circle_fill,
+                                color: Colors.red),
+                            label: const Text("Watch Video",
+                                style: TextStyle(fontSize: 16)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
           ],
         ),
       ),
